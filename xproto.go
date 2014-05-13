@@ -1575,9 +1575,15 @@ const (
 const OpcodeChangeProperty = 18
 
 func (c *Conn) ChangeProperty(Mode byte, Window Id, Property Id, Type Id, Format byte, Data []byte) {
+	// Code modified after xproto of
+	// <https://github.com/BurntSushi/xgb/xproto>, to correct a bug in the
+	// length field that produces a panic in non 8-bit formats.
 	b := c.scratch[0:24]
 	n := 24
-	n += pad(((len(Data) * int(Format)) / 8) * 1)
+
+	lenData := len(Data) / (int(Format) / 8)
+
+	n += pad(((lenData * int(Format)) / 8) * 1)
 	put16(b[2:], uint16(n/4))
 	b[0] = 18
 	b[1] = Mode
@@ -1585,9 +1591,9 @@ func (c *Conn) ChangeProperty(Mode byte, Window Id, Property Id, Type Id, Format
 	put32(b[8:], uint32(Property))
 	put32(b[12:], uint32(Type))
 	b[16] = Format
-	put32(b[20:], uint32(len(Data)))
+	put32(b[20:], uint32(lenData))
 	c.sendRequest(b)
-	c.sendBytes(Data[0:((len(Data) * int(Format)) / 8)])
+	c.sendBytes(Data[0:((lenData * int(Format)) / 8)])
 }
 
 const OpcodeDeleteProperty = 19
@@ -4419,6 +4425,12 @@ func parseEvent(buf []byte) (Event, error) {
 		return getClientMessageEvent(buf), nil
 	case MappingNotify:
 		return getMappingNotifyEvent(buf), nil
+	// for some reason, wmDelete ClientEvent receive this code.
+	case 161:
+		return getClientMessageEvent(buf), nil
+	// for some reason, when capturing StructureNotify, it receive this code.
+	case 150:
+		return getConfigureNotifyEvent(buf), nil
 	}
 	return nil, errors.New("unknown event type")
 }
